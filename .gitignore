@@ -11,7 +11,10 @@
 *.swp
 *~
 *.exe
-
+*/include
+*\include
+*/lib
+*\lib
 
 #Following ignores were taken from:
 #http://stackoverflow.com/questions/1287256/git-net-files-to-ignore
