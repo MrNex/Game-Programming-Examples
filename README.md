@@ -14,7 +14,7 @@ A comprehensive library of a multitude of game programming topics with robust ex
             /Game-Programming-Examples/GLFW/Collision Detection/Convex Hull (SAT - 3D)/
       ```
       
-4. Run the solution file (.sln) of the example you wish to run. For our previous example:
+4. Run the solution file (.sln) of the example you wish to run from the aforementioned *solution directory*. For our previous example:
 
       ```
             /Game-Programming-Examples/GLFW/Collision Detection/Convex Hull (SAT - 3D)/Convex Hull (SAT - 3D).sln
