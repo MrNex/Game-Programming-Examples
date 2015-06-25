@@ -240,7 +240,7 @@ struct ConvexHull
 				points.push_back(nextPoint);
 
 			//Generate an edge from the two points
-			struct Edge edge
+			struct Edge edge =
 			{
 				currentPoint,
 				nextPoint,
