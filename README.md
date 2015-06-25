@@ -20,5 +20,5 @@ A comprehensive library of a multitude of game programming topics with robust ex
             /Game-Programming-Examples/GLFW/Collision Detection/Convex Hull (SAT - 3D)/Convex Hull (SAT - 3D).sln
       ```
       
-*Note: Each example will have controls printed in the command prompt / terminal window upon being executed.*
+**Note**: Each example will have controls printed in the command prompt / terminal window upon being executed.*
 **Also Note:** *Some examples will not work in Visual Studio 2012 due to the compiler not supporting [Initializer Lists](https://msdn.microsoft.com/en-us/library/vstudio/hh567368(v=vs.120).aspx).*
