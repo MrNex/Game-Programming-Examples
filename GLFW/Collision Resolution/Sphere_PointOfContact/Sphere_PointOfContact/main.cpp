@@ -1,5 +1,5 @@
 /*
-Title: 3D Sphere collision with MTV derivation and decoupling
+Title: 3D Sphere collision detection with point of contact derivation
 File Name: main.cpp
 Copyright © 2015
 Original authors: Srinivasan Thiagarajan
@@ -22,20 +22,17 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 Description:
-This program demostrates how to calculate the MTV for two spheres colliding with each other.
-It also demonstrates how to decouple objects after the collision is detected.
-In this program, a much simpler version version of SAT is implemented. Unlike conventional SAT,
-in this scenario, we only have to check for overlap along only 1 axis. the line connecting the
-centers of the two spheres. This is because the sphere's projection would be the same on any vector. 
+This example build upon the previous example of deriving the MTV for colision 
+between two spheres and decoupling them (3D Sphere collision with MTV derivation
+and decoupling). This example demonstrates deriving the point of collision from
+the MTV after decoupling the spheres.
 
-Depending on the overlap, we can decide if the collision has occured or not. If collision has occured,
-then the overlap can be used to compute the MTV by bultiplying with the unit direction vector from A to B.
+Once the two spheres have been moved in such a way that they are now in justcontact with each other,
+then the point of contact is at a distance of radius from the center of A in the direction pointed by MTV.
 
-Once collision has been detected, the other object can be moved by the MTV to decouple the objects.
-This is done in this example to demostrate decoupling. Essentially, you should take the ratios of the object's
-velocities and move them back by that much.
+In this program, the point of contact will blink as soon as the collision occours.
 
-use " W, A, S, D " to rotate the sphere. This should have no effect on the algorithm as all poitns 
+use " W, A, S, D " to rotate the sphere. This should have no effect on the algorithm as all poitns
 are equidistant from the center. Use " U, O, I, K, J ,L " to move the sphre in Z, Y and X plane respectively.
 Use Space to switch between the two spheres.
 
@@ -50,6 +47,8 @@ AABB-2D by Brockton Roth
 #pragma region program specific Data members
 float Speed = 0.05f;
 float radius = 0.25f;
+int timer = 0;
+glm::vec3 pointOfContact = glm::vec3(0.0f,0.0f,0.0f);
 #pragma endregion
 
 //This struct consists of the basic stuff needed for getting the shape on the screen.
@@ -154,32 +153,32 @@ void setup()
 			p1.position.y = radius * sin((pitch)* PI / 180.0) * sin((yaw)* PI / 180.0);;
 			p1.position.z = radius * cos((pitch)* PI / 180.0);
 			p1.color.r = 0.7f;
-			p1.color.g = 0.2f;
-			p1.color.b = 0;
+			p1.color.g = 0.7f;
+			p1.color.b = 0.7;
 			p1.color.a = 1;
 
 			p2.position.x = radius * sin((pitch)* PI / 180.0) * cos((yaw + yawDelta)* PI / 180.0);
 			p2.position.y = radius * sin((pitch)* PI / 180.0) * sin((yaw + yawDelta)* PI / 180.0);;
 			p2.position.z = radius * cos((pitch)* PI / 180.0);
 			p2.color.r = 0.7f;
-			p2.color.g = 0.2f;
-			p2.color.b = 0;
+			p2.color.g = 0.7f;
+			p2.color.b = 0.7;
 			p2.color.a = 1;
 
 			p3.position.x = radius * sin((pitch + pitchDelta)* PI / 180.0) * cos((yaw + yawDelta)* PI / 180.0);
 			p3.position.y = radius * sin((pitch + pitchDelta)* PI / 180.0) * sin((yaw + yawDelta)* PI / 180.0);;
 			p3.position.z = radius * cos((pitch + pitchDelta)* PI / 180.0);
 			p3.color.r = 0.7f;
-			p3.color.g = 0.2f;
-			p3.color.b = 0;
+			p3.color.g = 0.7f;
+			p3.color.b = 0.7f;
 			p3.color.a = 1;
 
 			p4.position.x = radius * sin((pitch + pitchDelta)* PI / 180.0) * cos((yaw)* PI / 180.0);
 			p4.position.y = radius * sin((pitch + pitchDelta)* PI / 180.0) * sin((yaw)* PI / 180.0);;
 			p4.position.z = radius * cos((pitch + pitchDelta)* PI / 180.0);
 			p4.color.r = 0.7f;
-			p4.color.g = 0.2f;
-			p4.color.b = 0;
+			p4.color.g = 0.7f;
+			p4.color.b = 0.7;
 			p4.color.a = 1;
 
 			vertexSet.push_back(p1);
@@ -201,7 +200,7 @@ void setup()
 	{
 		vertexSet[i].color.r = 0.0f;
 		vertexSet[i].color.g = 0.2f;
-		vertexSet[i].color.b = 0.7f;
+		vertexSet[i].color.b = 0.9f;
 	}
 	sphere2.base.initBuffer(vertexSet.size(), &vertexSet[0]);
 }
@@ -370,7 +369,7 @@ void init()
 
 	// This is also not necessary, but more efficient and is generally good practice. By default, OpenGL will render both sides of a triangle that you draw. By enabling GL_CULL_FACE, 
 	// we are telling OpenGL to only render the front face. This means that if you rotated the triangle over the X-axis, you wouldn't see the other side of the triangle as it rotated.
-	//glEnable(GL_CULL_FACE);
+	glEnable(GL_CULL_FACE);
 	//We are disabling hte cull face, because we wish to see both the front and back of the objects in wireframe mode for better understanding the depth.
 
 	// Determines the interpretation of polygons for rasterization. The first parameter, face, determines which polygons the mode applies to.
@@ -403,7 +402,7 @@ bool returnMTV(Sphere &A, Sphere &B, glm::vec3 &mtv)
 	min = A.origin + (n * A.radius);
 	max = B.origin - (n * B.radius);
 
-	if (glm::dot(n, min) > glm::dot(n, max))
+	if (glm::dot(n, min) >= glm::dot(n, max))
 	{
 		//If they do overlap, then the overlapping distance multiplied by the direction vector from A to B will give the MTV
 		float overlap = glm::dot(n, min) - glm::dot(n, max);
@@ -425,7 +424,14 @@ void update()
 
 	if (returnMTV(*boxInfocus, *boxOutfocus, n))		// Check if the collision occours
 	{
-		boxOutfocus->origin += n;						// if collision occours then move the other obejct by MTV
+		if (glm::length(n) > FLT_EPSILON)
+		{
+			boxOutfocus->origin += n;						// if collision occours then move the other obejct by MTV
+			//once the two spheres have been moved in such a way that they are now in justcontact with each other,
+			// then the point of contact is at a distance of radius from the center of A in the direction pointed by MTV.
+			pointOfContact = (glm::normalize(n) * boxInfocus->radius) + boxInfocus->origin;
+			timer = 500;
+		}
 	}
 	
 	//The position of the obejct needs to be changed and sent to the GPU in form of a matrix
@@ -458,6 +464,24 @@ void renderScene()
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexFormat), (void*)16);
 	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(VertexFormat), (void*)0);
 	glDrawArrays(GL_TRIANGLES, 0, sphere2.base.numberOfVertices);
+
+	if (timer > 0)
+	{
+		// Draw the point.
+		// Since we are using the deprecated funtion of glbegin(); it uses the program currently loaded in the GPU.
+		// We can either unuse the program using gluseprogram(0) and do the projection and view multiplication on the CPU side.
+		// or we can use the same shader program and convert these into an MVP and send it to the GPU and just draw at 0,0,0.
+		
+		glm::mat4 specialMVP = PV * glm::translate(pointOfContact);
+		glEnable(GL_POINT_SMOOTH);
+		glUniformMatrix4fv(uniMVP, 1, GL_FALSE, glm::value_ptr(specialMVP));
+		glPointSize(9.0f);
+		glBegin(GL_POINTS);
+		glVertex3f(0.0f,0.0f,0.0f);
+		glEnd();
+		timer--;
+		// to enusrethe dot remains only for a split second
+	}
 }
 
 
@@ -524,9 +548,9 @@ void main()
 
 	// Creates a window given (width, height, title, monitorPtr, windowPtr).
 	// Don't worry about the last two, as they have to do with controlling which monitor to display on and having a reference to other windows. Leaving them as nullptr is fine.
-	window = glfwCreateWindow(800, 800, "3D Sphere SAT (MTV and decoupling)", nullptr, nullptr);
+	window = glfwCreateWindow(800, 800, "3D Sphere ( point of Contact )", nullptr, nullptr);
 
-	std::cout << "\n This program demonstrates the implementation SAT between two Spheres\n\n\n\n\n\n\n\n\n\n";
+	std::cout << "\n This program demonstrates the derivation of point of contact between two spheres\n\n\n\n\n\n\n\n\n\n";
 	std::cout << "\n Press \" Space \" to toggle between the objects.";
 	std::cout << "\n Use \"a,s,d\" to rotate the selected object.";
 	std::cout << "\n Use \"i,j,k,l\" to move in XY plane";
