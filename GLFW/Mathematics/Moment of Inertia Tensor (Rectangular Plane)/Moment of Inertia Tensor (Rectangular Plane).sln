@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{13D1D557-EAA7-46A6-B5B1-4B72D755A548}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Moment of Inertia Tensor (Rectangle - 2D)", "Moment of Inertia Tensor (Rectangle - 2D)\Moment of Inertia Tensor (Rectangle - 2D).vcxproj", "{6B78F1CF-8D57-41E0-AF9E-48A941406F61}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Moment of Inertia Tensor (Rectangular Plane)", "Moment of Inertia Tensor (Rectangular Plane)\Moment of Inertia Tensor (Rectangular Plane).vcxproj", "{6B78F1CF-8D57-41E0-AF9E-48A941406F61}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
