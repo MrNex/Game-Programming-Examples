@@ -458,7 +458,7 @@ void main()
 	rect->scale = glm::scale(glm::mat4(1.0f), scale);
 
 	mass = 10.0f;
-	inertiaTensor = CalculateInertiaTensorOfMyRectangle(scale.x, scale.y, mass);
+	inertiaTensor = CalculateInertiaTensorOfMyRectangle(2.0f * scale.x,2.0f * scale.y, mass);
 
 	//Print controls
 	std::cout << "Controls:\nClick and drag to rotate the rectangle and calculate the new moment of inertia.\n";
