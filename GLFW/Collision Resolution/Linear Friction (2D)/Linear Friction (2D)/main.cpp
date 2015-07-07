@@ -424,6 +424,7 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 
 	//First calculate and apply object 1's impulse
 	glm::vec2 frictionalImpulse;
+	float angularFrictionalImpulse;
 	//From Ff = coefficient * fNormal we must first determine if we are dealing with static or dynamic friction
 	//In an impulse based model we have jFriction = coefficient * jNormal for both the static and dynamic cases.
 	//
@@ -453,7 +454,17 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 	{
 		//If there is notion, we have a dynamic case. We can simply apply an impulse with magnitude
 		//equal to the dynamic mag in the proper direction
-		frictionalImpulse = unitTangentVector * dynamicMag;
+
+		//If this impulse will overcome and change the direction of the current velocity, we must limit it.
+		float impulseMag = body1.inverseMass == 0.0f ? 0.0f : relVelocityTangential / body1.inverseMass;
+		if(impulseMag < dynamicMag)
+		{
+			frictionalImpulse = unitTangentVector * impulseMag;
+		}
+		else
+		{
+			frictionalImpulse = unitTangentVector * dynamicMag;
+		}
 	}
 	body1.netImpulse += glm::vec3(frictionalImpulse, 0.0f);
 
@@ -472,7 +483,16 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 	}
 	else
 	{
-		frictionalImpulse = unitTangentVector * dynamicMag;
+		//If this impulse will overcome and change the direction of the current velocity, we must limit it.
+		float impulseMag = body1.inverseMass == 0.0f ? 0.0f : relVelocityTangential / body1.inverseMass;
+		if(impulseMag < dynamicMag)
+		{
+			frictionalImpulse = unitTangentVector * impulseMag;
+		}
+		else
+		{
+			frictionalImpulse = unitTangentVector * dynamicMag;
+		}
 	}
 	body2.netImpulse -= glm::vec3(frictionalImpulse, 0.0f);
 }
