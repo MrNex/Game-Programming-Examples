@@ -341,7 +341,7 @@ void init()
 
 	// Set options
 	glFrontFace(GL_CCW);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 }
 
 #pragma endregion Helper_functions
