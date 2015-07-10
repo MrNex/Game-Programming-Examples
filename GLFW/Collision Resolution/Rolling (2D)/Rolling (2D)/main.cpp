@@ -1,5 +1,5 @@
 /*
-Title: Linear Friction (2D)
+Title: Rolling (2D)
 File Name: main.cpp
 Copyright © 2015
 Original authors: Nicholas Gallagher
@@ -22,19 +22,18 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 Description:
-This is a demonstration of calculating and applying a linear frictional force to colliding rigidbodies.
-The demo contains a yellow circle & a pink rectangle. The pink rectangle is supposed to be the ground,
-which in turn has infinite mass. The demo uses the Coulomb Impulse-Based model of friction to simulate frictional
-forces between colliding bodies.
+This is a demonstration of calculating and applying a linear frictional force to colliding rigidbodies in
+such a way that rolling can be facilitated. The demo contains a yellow circle & a pink rectangle. The pink rectangle is
+supposed to be the ground, which in turn has infinite mass. The demo uses the Coulomb Impulse-Based model of friction to
+simulate frictional forces between colliding bodies.
 
-More on the simulation of this frictional body can be found on page 43 and 44 of this article:
-	https://drive.google.com/a/g.rit.edu/file/d/0Bze6mKYvrpOKYjdkODVhMTAtM2Q4Zi00NzgyLWE2YzMtN2MwZmQ4NjA3OWMw/view?ddrp=1&pli=1&hl=en
-
-The user can press and hold spacebar to apply a constant force to the circle.
+The algorithm Calculates & applies a linear frictional impulse according to Coulomb's impulse based model of friction.
+This includes calculations of the linear velocity at the point of collision due to angular motion of an object to facilitate a rolling motion.
+Aswell as calculations of changes in angular velocity due to friction at a point on the surface of an object.
 
 References:
 Gravitas: An extensible physics engine framework using object-oriented and design pattern-driven software architecture principles by Colin Vella, supervised by Dr. Ing. Adrian Muscat
-NGen by Nicholas Gallagher
+Kinematics of an Ultraelastic Rough Ball by Richard L. Garwin
 PhysicsTimestep by Brockton Roth
 Base by Srinivasan Thiagarajan
 */
@@ -185,21 +184,28 @@ struct AABB
 //Struct for linear kinematics
 struct RigidBody
 {
-	float inverseMass;			//I tend to use inverse mass as opposed to mass itself. It saves lots of divides when forces are involved.
-	float restitution;			//How elastic this object is (1.0f is perfectly elastic, 0.0f is perfectly inelastic)
-	float dynamicFriction;		//Dynamic coefficient of Friction
-	float staticFriction;		//Static coefficient of Friction
+	float inverseMass;				//I tend to use inverse mass as opposed to mass itself. It saves lots of divides when forces are involved.
+	float inverseMomentOfInertia;	//An objects resistance to rotation
+	float restitution;				//How elastic this object is (1.0f is perfectly elastic, 0.0f is perfectly inelastic)
+	float dynamicFriction;			//Dynamic coefficient of Friction
+	float staticFriction;			//Static coefficient of Friction
 
-	glm::vec3 position;			//Position of the rigidbody
-	glm::vec3 velocity;			//The velocity of the rigidbody
-	glm::vec3 acceleration;		//The acceleration of the rigidbody
+	glm::vec3 position;				//Position of the rigidbody
+	glm::vec3 velocity;				//The velocity of the rigidbody
+	glm::vec3 acceleration;			//The acceleration of the rigidbody
 
-	glm::vec3 netForce;			//Forces over time
-	glm::vec3 netImpulse;		//Instantaneous forces
+	glm::mat3 rotation;				//Orientation of rigidbody
+	glm::vec3 angularVelocity;		//Angular velocity of rigidbody
+	glm::vec3 angularAcceleration;	//Angular acceleration of rigidbody
 
+	glm::vec3 netForce;				//Forces over time
+	glm::vec3 netImpulse;			//Instantaneous forces
+	float netTorque;				//Torque over time (2D -- only torque which exists is around Z axis)
+	float netAngularImpulse;		//Instantaneous torque.
+
+	//Note: The following is only for robustness.. You could get away with leaving these out.
 	glm::vec3 previousNetForce;		//Forces over time from prior to the most recent physics update
 	glm::vec3 previousNetImpulse;	//Instantaneous forces from prior to the most recent physics update
-
 
 	///
 	//Default constructor, created rigidbody with all properties set to zero
@@ -215,13 +221,31 @@ struct RigidBody
 		velocity = glm::vec3(0.0f, 0.0f, 0.0f);
 		acceleration = glm::vec3(0.0f, 0.0f, 0.0f);
 
+		rotation = glm::mat3(1.0f);
+		angularVelocity = glm::vec3(0.0f);
+		angularAcceleration = glm::vec3(0.0f);
+
 		previousNetForce = netForce = glm::vec3(0.0f);
 		previousNetImpulse = netImpulse = glm::vec3(0.0f);
+		netTorque = 0.0f;
+		netAngularImpulse = 0.0f;
 	}
 
 	///
-	//Parameterized constructor, creates rigidbody at certain position with certain velocity and acceleration
-	RigidBody::RigidBody(glm::vec3 pos, glm::vec3 vel, glm::vec3 acc, float mass, float coeffOfRestitution, float dynamicC, float staticC)
+	//Parameterized constructor, creates rigidbody with specified initial values
+	//
+	//Parameters:
+	//	pos: Initial position
+	//	vel: Initial velocity
+	//	acc: Initial acceleration
+	//	rot: Initial orientation
+	//	aVel: Initial angular velocity
+	//	aAcc: Initial angular acceleration
+	//	mass: The mass of the rigidbody (0.0f for infinite mass)
+	//	coeffOfRestitution: How elastic is the rigidbody (1.0f for perfectly elastic, 0.0f for perfectly inelastic)
+	//	dynamicC: The dynamic coefficient of friction
+	//	staticC: the static coefficient of friction
+	RigidBody::RigidBody(glm::vec3 pos, glm::vec3 vel, glm::vec3 acc, glm::mat3 rot, glm::vec3 aVel, glm::vec3 aAcc,  float mass, float coeffOfRestitution, float dynamicC, float staticC)
 	{
 		inverseMass = mass == 0.0f ? 0.0f : 1.0f / mass;
 		restitution = coeffOfRestitution;
@@ -230,8 +254,14 @@ struct RigidBody
 		velocity = vel;
 		acceleration = acc;
 
-		netForce = glm::vec3(0.0f);
-		netImpulse = glm::vec3(0.0f);
+		rotation = rot;
+		angularVelocity = aVel;
+		angularAcceleration = aAcc;
+
+		previousNetForce = netForce = glm::vec3(0.0f);
+		previousNetImpulse = netImpulse = glm::vec3(0.0f);
+		netTorque = 0.0f;
+		netAngularImpulse = 0.0f;
 
 		dynamicFriction = dynamicC;
 		staticFriction = staticC;
@@ -341,21 +371,36 @@ void init()
 
 	// Set options
 	glFrontFace(GL_CCW);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
+///
+//Calculates the moment of inertia around the Z axis of a thin solid disk with a given radius and mass
+float CalculateMomentOfInertiaOfCircle(float radius, float m)
+{
+	return  m * powf(radius, 2.0f) * 0.5f;
+}
+
+///
+//Calculates the moment of inertia around the Z axis of a thin solid rectangle with given dimensions and mass
+float CalculateMomentOfInertiaOfRectangle(float width, float height, float m)
+{
+	return  m * (powf(width, 2.0f)  + powf(height, 2.0f)) / 12.0f;
 }
 
 #pragma endregion Helper_functions
 
 ///
 //Calculates & applies a linear frictional impulse according to Coulomb's impulse based model of friction
-//More on this model can be found on Page 43 - 44 of:
-//	https://drive.google.com/a/g.rit.edu/file/d/0Bze6mKYvrpOKYjdkODVhMTAtM2Q4Zi00NzgyLWE2YzMtN2MwZmQ4NjA3OWMw/view?ddrp=1&pli=1&hl=en
+//Includes calculations of the linear velocity at the point of collision due to angular motion of an object to facilitate a rolling motion.
+//Aswell as calculations of changes in angular velocity due to friction at a point on the surface of an object.
 //
 //Parameters:
 //	body1: The first rigidbody involved in the collision (And the rigidbody which the MTV points toward by our convention)
 //	body2: The second rigidbody involved in the collision (And the rigidbody which the MTV points away from by our convention)
 //	MTV: the minimum translation vector (Or collision normal)
-void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MTV)
+//	collisionPoint: The point of collision
+void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MTV, const glm::vec2 &collisionPoint)
 {
 	//Step 0: Due to complications of simulating friction we must come up with a minimum velocity low enough for objects to be considered static at.
 	//It will be very difficult for an object's velocity to hit exactly zero obeying strict laws of friction. However, if we
@@ -369,10 +414,18 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 
 	//Step 2: Find the direction of a tangent vector which is tangential to the surrface of collision in the direction of movement (or impending movement if there is no movement yet)
 	glm::vec2 unitTangentVector;
-	
+
 	//Determine the relative velocity of body2 from body1
-	glm::vec2 relativeVelocity = glm::vec2(body2.velocity);
-	relativeVelocity -= glm::vec2(body1.velocity);
+	//To do this we must determine the total velocity at the point of collision on both objects (Including linear velocity due to angular motion)
+	glm::vec2 totalVel1, totalVel2;
+	glm::vec2 radius1, radius2;
+	radius1 = collisionPoint - glm::vec2(body1.position);
+	radius2 = collisionPoint - glm::vec2(body2.position);
+
+	totalVel2 = glm::vec2(body2.velocity + glm::cross(body2.angularVelocity, glm::vec3(radius2, 0.0f)));
+	totalVel1 = glm::vec2(body1.velocity + glm::cross(body1.angularVelocity, glm::vec3(radius1, 0.0f)));
+
+	glm::vec2 relativeVelocity = totalVel2 - totalVel1;
 
 	//Determine the relative velocity perpendicular to the surface
 	glm::vec2 perpRelVelocity = glm::dot(relativeVelocity, MTV) * MTV;
@@ -420,11 +473,11 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 	//Step 3) Compute and apply the frictional impulse
 	//Start by computing the magnitude of velocity parallel to the surface
 	float relVelocityTangential = glm::dot(relativeVelocity, unitTangentVector);
-	
+
+	bool test = false;
 
 	//First calculate and apply object 1's impulse
 	glm::vec2 frictionalImpulse;
-	float angularFrictionalImpulse;
 	//From Ff = coefficient * fNormal we must first determine if we are dealing with static or dynamic friction
 	//In an impulse based model we have jFriction = coefficient * jNormal for both the static and dynamic cases.
 	//
@@ -448,6 +501,7 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 			//If the impending motion overcomes the static magnitude
 			//Apply an impulse equal to the static magnitude in the proper direction
 			frictionalImpulse = unitTangentVector * staticMag;
+			test = true;
 		}
 	}
 	else
@@ -456,7 +510,7 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 		//equal to the dynamic mag in the proper direction
 
 		//If this impulse will overcome and change the direction of the current velocity, we must limit it.
-		float impulseMag = body1.inverseMass == 0.0f ? 0.0f : relVelocityTangential / body1.inverseMass;
+		float impulseMag = body1.inverseMass == 0.0f ? 0.0f : fabs(relVelocityTangential / body1.inverseMass);
 		if(impulseMag < dynamicMag)
 		{
 			frictionalImpulse = unitTangentVector * impulseMag;
@@ -464,9 +518,23 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 		else
 		{
 			frictionalImpulse = unitTangentVector * dynamicMag;
+			test = true;
 		}
 	}
-	body1.netImpulse += glm::vec3(frictionalImpulse, 0.0f);
+ 	if(glm::length(frictionalImpulse) > FLT_EPSILON)
+	{ 
+
+		body1.netImpulse += glm::vec3(frictionalImpulse, 0.0f);
+
+		if(body1.inverseMass != 0.0f && body1.inverseMomentOfInertia != 0.0f)
+		{
+			//Here we take into account the angular motion which is a result of friction
+			//We have the linear impulse on the body due to friction. We can calculate the angular impulse on the body as a result of the radius crossed with the impulse.
+			glm::vec3 angularFrictionalImpulse = glm::cross(glm::vec3(radius1, 0.0f), glm::vec3(frictionalImpulse, 0.0f));
+			
+			body1.netAngularImpulse += angularFrictionalImpulse.z;
+		}
+	}
 
 	//Repeat for body2, but opposite direction!
 	if(fabs(relVelocityTangential) < tolerance)
@@ -484,7 +552,7 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 	else
 	{
 		//If this impulse will overcome and change the direction of the current velocity, we must limit it.
-		float impulseMag = body1.inverseMass == 0.0f ? 0.0f : relVelocityTangential / body1.inverseMass;
+		float impulseMag = body2.inverseMass == 0.0f ? 0.0f : relVelocityTangential / body2.inverseMass;
 		if(impulseMag < dynamicMag)
 		{
 			frictionalImpulse = unitTangentVector * impulseMag;
@@ -494,7 +562,21 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 			frictionalImpulse = unitTangentVector * dynamicMag;
 		}
 	}
-	body2.netImpulse -= glm::vec3(frictionalImpulse, 0.0f);
+
+	if(glm::length(frictionalImpulse))
+	{
+		body2.netImpulse += glm::vec3(frictionalImpulse, 0.0f);
+
+		if(body2.inverseMass != 0.0f && body2.inverseMomentOfInertia != 0.0f)
+		{
+			//Here we take into account the angular motion which is a result of friction
+			//We have the linear impulse on the body due to friction. We can calculate the angular impulse on the body as a result of the radius crossed with the impulse.
+			glm::vec3 angularFrictionalImpulse = glm::cross(glm::vec3(radius2, 0.0f), glm::vec3(frictionalImpulse, 0.0f));
+			
+			body2.netAngularImpulse += angularFrictionalImpulse.z;
+		}
+	}
+
 }
 
 ///
@@ -512,27 +594,44 @@ void ApplyLinearFriction(RigidBody &body1, RigidBody &body2, const glm::vec2 &MT
 //	body2: The rigidbody which the MTV points away
 //	MTV: the minimum translation vector
 //	pointOfCollision: The collision point between the two objects (Actually not needed in the strictly linear case).
-void ResolveCollision(RigidBody &body1, RigidBody &body2, const glm::vec2 &MTV, const glm::vec2 &pointOfCollision)
+void ResolveCollision(RigidBody &body1, RigidBody &body2, const glm::vec2 &MTV, const glm::vec2 &collisionPoint)
 {
 	//Step 1: Compute the relative velocity of object 1 from the point of collision on object 2
-	glm::vec3 relativeVelocity = body1.velocity - body2.velocity;
+	glm::vec3 radius1 = glm::vec3(collisionPoint, 0.0f) - body1.position;
+	glm::vec3 radius2 = glm::vec3(collisionPoint, 0.0f) - body2.position;
+
+	glm::vec3 velTotal1 = body1.velocity + glm::cross(body1.angularVelocity, radius1);
+	glm::vec3 velTotal2 = body2.velocity + glm::cross(body2.angularVelocity, radius2);
+
+	glm::vec3 relativeVelocity = velTotal1 - velTotal2;
 
 	//Step 2: Determine the magnitude of the relative velocity in the direction of the collision.
 	float relativeVelocityPerp = glm::dot(relativeVelocity, glm::vec3(MTV, 0.0f));
 
+
 	//Step 3: Calculate the relative velocity after the collision
 	float e = body1.restitution * body2.restitution;
-	float finalRelativeVelocityPerp = -e * relativeVelocityPerp;
+	float finalRelativeVelocityPerp = -e * relativeVelocityPerp;	//Remember, the final velocity will have it's direction switched (So make e negative!) 
 
 	//Step 4: Calculate the collision impulse
-	float j = (finalRelativeVelocityPerp - relativeVelocityPerp) / (body1.inverseMass + body2.inverseMass);
+	glm::vec3 perpRadius1 = glm::cross(glm::vec3(0.0f, 0.0f, 1.0f), radius1);
+	glm::vec3 perpRadius2 = glm::cross(glm::vec3(0.0f, 0.0f, 1.0f), radius2);
+	float j = (finalRelativeVelocityPerp - relativeVelocityPerp) / (body1.inverseMass + body2.inverseMass + (powf(glm::dot(perpRadius1, glm::vec3(MTV, 0.0f)), 2.0f) * body1.inverseMomentOfInertia + ( powf(glm::dot(perpRadius2, glm::vec3(MTV, 0.0f)), 2.0f) * body2.inverseMomentOfInertia)));
 
 	//Step 5: Apply the impulse
 	glm::vec3 impulse = glm::vec3(j * MTV, 0.0f);
 	body1.netImpulse += impulse;
 
+	//And determine the net angular impulse from this
+	//Torque = radius x force
+	body1.netAngularImpulse += glm::cross(radius1, impulse).z;
+
 	impulse *= -1.0f;
 	body2.netImpulse += impulse;
+
+	//Determine angular impulse for body 2
+	body2.netAngularImpulse += glm::cross(radius2, impulse).z;
+
 }
 
 ///
@@ -562,6 +661,29 @@ void IntegrateLinear(float dt, RigidBody &body)
 	//Zero the net impulse and net force!
 	body.netForce = body.netImpulse = glm::vec3(0.0f);
 }
+
+void IntegrateAngular(float dt, RigidBody &body)
+{
+	//Calculate new angular acceleration
+	body.angularAcceleration = glm::vec3(0.0f, 0.0f, body.netTorque * body.inverseMomentOfInertia);
+
+	//Find change in position with W0 * dt + (1/2)aA * dt ^ 2
+	//Where W0 is initial angular velocity, and aA is angular acceleration
+	glm::vec3 dr = dt * body.angularVelocity + 0.5f * powf(dt, 2.0f) * body.angularAcceleration;
+
+	float magR = glm::length(dr);
+	if(magR > 0.0f)
+	{
+		glm::mat3 R = glm::mat3(glm::rotate(glm::mat4(1.0f), magR, dr));
+
+		body.rotation = R * body.rotation;
+
+	}
+	//body.angularVelocity += dt * body.angularAcceleration + body.netAngularImpulse / body.momentOfInertia;
+	body.angularVelocity += dt * body.angularAcceleration + glm::vec3(0.0f, 0.0f, body.netAngularImpulse * body.inverseMomentOfInertia);
+	body.netTorque = body.netAngularImpulse = 0.0f;
+}
+
 
 
 ///
@@ -602,10 +724,16 @@ void DecoupleObjects(struct RigidBody &body1, struct RigidBody &body2, const glm
 //	body1: The rigidbody of the object that the minimum translation vector points toward
 //	body2: The rigidbody of the object that the minimum translation vector points away from
 //	MTV: the minimum translation vector
-bool IsResolutionNeeded(struct RigidBody &body1, struct RigidBody &body2, glm::vec2 &MTV)
+bool IsResolutionNeeded(struct RigidBody &body1, struct RigidBody &body2, glm::vec2 &MTV, glm::vec2 collisionPoint)
 {
-	//Determine the relative velocity of object 2 from the Center of Mass of object 1
-	glm::vec2 relativeVelocity = glm::vec2(body2.velocity - body1.velocity);
+	//Find the relative velocity of the point of collision on object 2 from the point of collision on object 1
+	glm::vec3 radius1 = glm::vec3(collisionPoint, 0.0f) - body1.position;
+	glm::vec3 radius2 = glm::vec3(collisionPoint, 0.0f) - body2.position;
+
+	glm::vec3 velTotal1 = body1.velocity + glm::cross(body1.angularVelocity, radius1);
+	glm::vec3 velTotal2 = body2.velocity + glm::cross(body2.angularVelocity, radius2);
+
+	glm::vec2 relativeVelocity = glm::vec2(velTotal2 - velTotal1);
 	//Check it's dot product with the MTV to make sure it is in the direction of the MTV
 	if(glm::dot(MTV, relativeVelocity) > 0.0f)
 	{
@@ -625,7 +753,7 @@ float ClampOnRange(float x, float min, float max)
 		return min;
 	if (x > max)
 		return max;
-	
+
 	return x;
 }
 
@@ -636,7 +764,7 @@ glm::vec2 ClampOnRectangle(glm::vec2 p, AABB r)
 	closest_point.x = ClampOnRange(p.x,
 		r.center.x - (r.width / 2.0f),
 		r.center.x + (r.width / 2.0f));
-	
+
 	closest_point.y = ClampOnRange(p.y,
 		r.center.y - (r.height / 2.0f),
 		r.center.y + (r.height / 2.0f));
@@ -654,13 +782,14 @@ bool CheckCollision(Circle c, AABB r, glm::vec2 &MTV, float &mag)
 
 	//gets the distance between the circle's center and the point on box.
 	float distance = glm::distance(closest_point, c.center);
-	
+
 	// if the point lies on/inside the circle; return true . else false.
 	if (distance <= c.radius)
 	{
 		//Get the overlap & mtv
 		MTV = closest_point - (c.center + c.radius * (glm::normalize(closest_point - c.center)));
 		mag = glm::length(MTV);
+		if(mag <= FLT_EPSILON) return false;
 		MTV = glm::normalize(MTV);
 		return true;
 	}
@@ -693,13 +822,15 @@ void update(float dt)
 
 	if(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
 	{
-		//Apply impulse to circle
-		glm::vec3 force(1.0f, 0.0f, 0.0f);
-		circleBody->netForce += force;
+		circleBody->netForce += glm::vec3(1.0f, 0.0f, 0.0f);
 	}
+
 	//Update the rigidbodies
 	IntegrateLinear(dt, *circleBody);
+	IntegrateAngular(dt, *circleBody);
+
 	IntegrateLinear(dt, *groundBody);
+	IntegrateAngular(dt, *groundBody);
 
 	//Move the colliders
 	circleCollider->center = glm::vec2(circleBody->position);
@@ -708,20 +839,20 @@ void update(float dt)
 	//Check for collision
 	if(CheckCollision(*circleCollider, *groundCollider, minimumTranslationVector, overlap))
 	{
+		//Decouple and find point of collision
+		DecoupleObjects(*circleBody, *groundBody, minimumTranslationVector, overlap);
+		pointOfCollision = DetermineCollisionPoint(*circleCollider, minimumTranslationVector, overlap);
+
 		//Check if collision resolution is necessary
 		//If two objects are already moving away from each other, but in contact, we let them resolves themselves.
-		if(IsResolutionNeeded(*circleBody, *groundBody, minimumTranslationVector))
+		if(IsResolutionNeeded(*circleBody, *groundBody, minimumTranslationVector, pointOfCollision))
 		{
-
-			//Decouple and find point of collision
-			DecoupleObjects(*circleBody, *groundBody, minimumTranslationVector, overlap);
-			pointOfCollision = DetermineCollisionPoint(*circleCollider, minimumTranslationVector, overlap);
 
 			//Resolve collision
 			ResolveCollision(*circleBody, *groundBody, minimumTranslationVector, pointOfCollision);
 
 			//Apply friction
-			ApplyLinearFriction(*circleBody, *groundBody, minimumTranslationVector);
+			ApplyLinearFriction(*circleBody, *groundBody, minimumTranslationVector, pointOfCollision);
 		}
 	}
 
@@ -735,6 +866,9 @@ void update(float dt)
 	//Move appearance to new position
 	circle->translation = glm::translate(glm::mat4(1.0f), circleBody->position);
 	ground->translation = glm::translate(glm::mat4(1.0f), groundBody->position);
+
+	circle->rotation = glm::mat4(circleBody->rotation);
+	ground->rotation = glm::mat4(groundBody->rotation);
 
 }
 
@@ -803,7 +937,7 @@ void main()
 	glfwInit();
 
 	// Create a window
-	window = glfwCreateWindow(800, 800, "Linear Friction (2D)", nullptr, nullptr);
+	window = glfwCreateWindow(800, 800, "Rolling (2D)", nullptr, nullptr);
 	glfwMakeContextCurrent(window);
 	glfwSwapInterval(0);
 
@@ -811,7 +945,7 @@ void main()
 	init();
 
 	//Generate the circle mesh
-	float circleScale = 0.15f;
+	float circleScale = 0.4f;
 	int numVertices = 72;
 	struct Vertex circleVerts[72];
 	float stepSize = 2.0f * 3.14159 / (numVertices/3.0f);
@@ -845,8 +979,8 @@ void main()
 	}
 
 	//circle1 creation
-	circle = new struct Mesh(numVertices, circleVerts, GL_TRIANGLES);
-	
+	circle = new struct Mesh(numVertices, circleVerts, GL_LINE_LOOP);
+
 	glm::vec3 groundScale(2.0f, 0.2f, 1.0f);
 	struct Vertex* groundVerts;
 	float arr[46] = 
@@ -872,23 +1006,34 @@ void main()
 
 	//Generate the circle rigidbodies
 	circleBody = new RigidBody(
-		glm::vec3(-0.75f, -0.55f, 0.0f),	//Initial position
-		glm::vec3(5.0f, 0.0f, 0.0f),		//Initial velocity
+		glm::vec3(-0.75f, 0.2f, 0.0f),	//Initial position
+		glm::vec3(0.0f, 0.0f, 0.0f),		//Initial velocity
 		glm::vec3(0.0f),					//Zero acceleration
+		glm::mat3(1.0f),					//Initial orientation
+		glm::vec3(0.0f, 0.0f, 0.0f),		//Initial angular velocity
+		glm::vec3(0.0f),					//Initial Angular Acceleration
 		1.0f,								//Mass
 		1.0f,								//Elasticity of object (1.0 is perfectly elastic-- no energy lost in collisions)
-		0.8f,								//Dynamic coefficient of Friction
-		1.0f								//Static coefficient of friction
+		0.2f,								//Dynamic coefficient of Friction
+		0.5f								//Static coefficient of friction
 		);
+	circleBody->inverseMomentOfInertia = circleBody->inverseMass == 0.0f ?
+		0.0f : 1.0f/CalculateMomentOfInertiaOfCircle(circleScale, 1.0f / circleBody->inverseMass);
+
 	groundBody = new RigidBody(
 		glm::vec3(0.0f, -0.8f, 0.0f), 		//Initial position
 		glm::vec3(0.0f, 0.0f, 0.0f), 		//Initial velocity
 		glm::vec3(0.0f), 					//Zero acceleration
+		glm::mat3(1.0f),					//Initial orientation
+		glm::vec3(0.0f),					//Initial angular velocity
+		glm::vec3(0.0f),					//Initial Angular Acceleration
 		0.0f, 								//Mass
-		0.2f,								//Elasticity of object (1.0 is perfectly elastic-- no energy lost in collisions)
-		0.8f,								//Dynamic coefficient of friction
+		0.8f,								//Elasticity of object (1.0 is perfectly elastic-- no energy lost in collisions)
+		1.0f,								//Dynamic coefficient of friction
 		1.0f								//Static coefficient of friction
 		);
+	groundBody->inverseMomentOfInertia = groundBody->inverseMass == 0.0f ? 
+		0.0f : 1.0f/CalculateMomentOfInertiaOfRectangle(2.0f * groundScale.x, 2.0f * groundScale.y, 1.0f / groundBody->inverseMass);
 
 	//Generate the circles colliders
 	circleCollider = new Circle(glm::vec2(circleBody->position), circleScale);
@@ -899,8 +1044,7 @@ void main()
 	circle->translation = glm::translate(circle->translation, circleBody->position);
 	ground->translation = glm::translate(ground->translation, groundBody->position);
 
-	//Print Controls
-	std::cout << "Controls:\nPress & hold spacebar to apply a constant force to the circle.\n";
+	std::cout << "Controls:\nPress and hold spacebar to apply a constant force to the center of mass of the circle.\n";
 
 	// Enter the main loop.
 	while (!glfwWindowShouldClose(window))
