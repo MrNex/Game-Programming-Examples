@@ -58,14 +58,14 @@ Particle-Based Fluid Simulation for Interactive Applications by Matthias Muller,
 
 #define BoundarySizeX 1.0f
 #define BoundarySizeY 1.0f
-#define BoundarySizeZ 1.0f
-#define Number_of_particels 50
+#define BoundarySizeZ 0.5f
+#define Number_of_particels 150
 #define	Grid_Size 10
-#define K 5.0f											// Gas stiffness
+#define K 1.0f											// Gas stiffness
 #define DENSITY 998.29f
 #define MASS (1000.0f/Number_of_particels)
 #define VISCOSITY 0.001003f
-#define SIGMA  0.0728f									// Surface tension
+#define SIGMA  0.07280f									// Surface tension
 #define DAMPENING_CONSTANT -0.3f
 #define COLOR_FIELD_THRESHOLD 7.065f 
 #define POINTSIZE 20.0f
@@ -155,9 +155,9 @@ void setup()
 	int i, j, k, l;
 	for (i = 0; i < Number_of_particels; i++)
 	{
-		particles[i].position.x = (float)(i % 3)*divisionX + (0.1f );	//* (i%2)
-		particles[i].position.y = (float)((i / 3)/*% 3*/)*divisionY + 1.0f;
-		particles[i].position.z = (float) 0.1f; // ((i / 9) % 3)*0.3f + 0.1f;
+		particles[i].position.x = (float)(i % (Grid_Size-1))*divisionX + (0.1f );	//* (i%2)
+		particles[i].position.y = (float)(i / (Grid_Size-1))*divisionY + 1.0f;
+		particles[i].position.z = (float)(i / ((Grid_Size - 1)* (Grid_Size - 1)))*divisionZ + 0.1f;
 		
 		particles[i].density = DENSITY;
 		particles[i].mass = MASS;
@@ -312,30 +312,30 @@ std::vector<Particle *> getNeighborsforPoint(int x, int y, int z, Particle r)
 		}
 
 
-		if (xFlagL && yFlagL)
-		{
-			for (it = grid[x - i][y - i][z].begin(); it != grid[x - i][y - i][z].end(); it++)
-			{
-				p.push_back((*it));
-			}
+		//if (xFlagL && yFlagL)
+		//{
+		//	for (it = grid[x - i][y - i][z].begin(); it != grid[x - i][y - i][z].end(); it++)
+		//	{
+		//		p.push_back((*it));
+		//	}
 
-			if (zFlagL)
-			{
-				for (it = grid[x - i][y - i][z - i].begin(); it != grid[x - i][y - i][z - i].end(); it++)
-				{
-					p.push_back((*it));
-				}
-			}
-			if (zFlagM)
-			{
-				for (it = grid[x - i][y - i][z + i].begin(); it != grid[x - i][y - i][z + i].end(); it++)
-				{
-					p.push_back((*it));
-				}
-			}
-		}
+		//	if (zFlagL)
+		//	{
+		//		for (it = grid[x - i][y - i][z - i].begin(); it != grid[x - i][y - i][z - i].end(); it++)
+		//		{
+		//			p.push_back((*it));
+		//		}
+		//	}
+		//	if (zFlagM)
+		//	{
+		//		for (it = grid[x - i][y - i][z + i].begin(); it != grid[x - i][y - i][z + i].end(); it++)
+		//		{
+		//			p.push_back((*it));
+		//		}
+		//	}
+		//}
 
-		if (xFlagM && yFlagM)
+		/*if (xFlagM && yFlagM)
 		{
 			for (it = grid[x + i][y + i][z].begin(); it != grid[x + i][y + i][z].end(); it++)
 			{
@@ -402,7 +402,7 @@ std::vector<Particle *> getNeighborsforPoint(int x, int y, int z, Particle r)
 					p.push_back((*it));
 				}
 			}
-		}
+		}*/
 	}
 	return p;
 }
@@ -436,6 +436,7 @@ void getNeighbors()
 		x = (x > Grid_Size - 1) ? Grid_Size - 1 : x;
 		y = (y > Grid_Size - 1) ? Grid_Size - 1 : y;
 		z = (z > Grid_Size - 1) ? Grid_Size - 1 : z;
+		
 		neighbors[i] = getNeighborsforPoint(x, y, z, particles[i]);
 	}
 }
@@ -558,8 +559,8 @@ glm::vec3 spikeKernelPoly6Gradient(glm::vec3 r)
 	*/
 	glm::vec3 grad(0.0f);;
 	float R = glm::length(r);
-	grad = r * (H - R) * (H - R) * (-45.0f);
-	grad /= (PI * powf(H, 6) * std::max(R,FLT_EPSILON));
+	grad = glm::normalize(r) * (H - R) * (H - R) * (-45.0f);
+	grad /= (PI * powf(H, 6));// *fmax(R, FLT_EPSILON));
 
 	return grad;
 }
@@ -867,12 +868,9 @@ void updateVelocities()
 
 void integrate(float dt)
 {
-	//std::cout << "\n ";
 	for (int i = 0; i < Number_of_particels; i++)
 	{
-		particles[i].velocity.z = 0.0f;
 		particles[i].position = EulerIntegrator(particles[i].position, dt, particles[i].velocity, particles[i].acceleration);
-		//std::cout << "\n particle : " << particles[i].velocity.z;
 	}
 }
 
@@ -900,7 +898,7 @@ glm::mat4 MVP;
 double time = 0.0;
 double timebase = 0.0;
 double accumulator = 0.0;
-double physicsStep = 0.012; // This is the number of milliseconds we intend for the physics to update.
+double physicsStep = 0.022; // This is the number of milliseconds we intend for the physics to update.
 
 
 // Reference to the window object being created by GLFW.
@@ -1073,7 +1071,7 @@ void update(float t)
 		updateVelocities();
 	
 	//Resolve collisions
-	findAndResolveCollisions();
+	//findAndResolveCollisions();
 
 	//Integrate the particle (update the 
 	integrate(t);
@@ -1148,10 +1146,22 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	{
 		if (G.x >= 0)
 		{
+
+			view = glm::lookAt(glm::vec3(BoundarySizeX / 2.0f, 0.5f, 3.0f), glm::vec3(BoundarySizeX / 2.0f, 0.5f, 0.0f), glm::vec3(1.0f, 1.0f, 0.0f));
+
+			PV = proj * view;
+
 			G.x = -14.8f;
 		}
 		else
+		{
+			view = glm::lookAt(glm::vec3(BoundarySizeX / 2.0f, 0.5f, 3.0f), glm::vec3(BoundarySizeX / 2.0f, 0.5f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+			PV = proj * view;
+
 			G.x = 0;
+		}
+			
 	}
 
 	
@@ -1168,15 +1178,6 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	if (key == GLFW_KEY_LEFT_SHIFT && (action == GLFW_PRESS || action == GLFW_REPEAT))
 	{
 		start = true;
-	}
-
-	if (key == GLFW_KEY_S && (action == GLFW_PRESS || action == GLFW_REPEAT))
-	{
-		particles[0].velocity += glm::vec3(0.0f, 1.0f, 0.0f);
-	}
-	if (key == GLFW_KEY_D && (action == GLFW_PRESS || action == GLFW_REPEAT))
-	{
-		particles[0].velocity += glm::vec3(0.1f, 0.0f, 0.0f);
 	}
 
 }
