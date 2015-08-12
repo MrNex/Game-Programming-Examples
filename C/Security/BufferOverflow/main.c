@@ -1,3 +1,31 @@
+/*
+Title: Buffer Overflow
+File Name: main.c
+Copyright © 2015
+Original authors: Nicholas Gallagher
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at
+your option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+Description:
+Demonstrates the concept of a Buffer Overflow and how it can lead to 
+security issues in your program.
+
+This example was written on a 64 bit intel processor on a Linux machine 
+using GCC and recompiled in GCC using MinGW for the Windows platform on a 
+64 bit intel processor.
+*/
+
 #include <stdio.h>
 #include <string.h>
 
